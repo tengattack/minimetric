@@ -1,4 +1,5 @@
 metric:
+  #node_name: '' # defaults to hostname
   period: 10s
 
 log:
@@ -13,6 +14,10 @@ log:
     app_id: dandelion
     #host: '' # log host, defaults to os.Getenv("HOST") or os.Hostname()
     #instance_id: '' # log instance_id, defaults to os.Getenv("INSTANCE_ID") or os.Hostname()
+
+output:
+  logstash:
+    hosts: ['logstash.example.com:5044']
 
 kubernetes:
   in_cluster: false # default: false

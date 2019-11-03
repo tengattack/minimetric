@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math/rand"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/tengattack/minimetric/config"
 	"github.com/tengattack/minimetric/metric"
@@ -53,6 +55,10 @@ func main() {
 		panic(err)
 	}
 
+	// set global rand seed
+	rand.Seed(time.Now().UnixNano())
+
+	metric.SetVersion(Version)
 	err = metric.Run()
 	if err != nil {
 		log.LogError.Fatalf("metric start error: %v", err)

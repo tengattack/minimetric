@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"io/ioutil"
 	"time"
 
@@ -11,17 +12,31 @@ import (
 // Conf is the main config
 var Conf Config
 
+// errors
+var (
+	ErrNoOutput = errors.New("no output configured")
+)
+
 // Config is config structure.
 type Config struct {
 	Metric     SectionMetric     `yaml:"metric"`
 	Log        log.Config        `yaml:"log"`
+	Output     SectionOutput     `yaml:"output"`
 	Kubernetes SectionKubernetes `yaml:"kubernetes"`
 }
 
 // SectionMetric is sub section of config.
 type SectionMetric struct {
+	NodeName       string `yaml:"node_name"`
 	Period         string `yaml:"period"`
 	PeriodDuration time.Duration
+}
+
+// SectionOutput is sub section of config.
+type SectionOutput struct {
+	Logstash struct {
+		Hosts []string `yaml:"hosts"`
+	} `yaml:"logstash"`
 }
 
 // SectionKubernetes is sub section of config.
@@ -67,6 +82,10 @@ func LoadConfig(confPath string) (Config, error) {
 	conf.Metric.PeriodDuration, err = time.ParseDuration(conf.Metric.Period)
 	if err != nil {
 		return conf, err
+	}
+
+	if len(conf.Output.Logstash.Hosts) <= 0 {
+		return conf, ErrNoOutput
 	}
 
 	return conf, nil
