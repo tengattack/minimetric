@@ -48,15 +48,15 @@ func metricLoop() {
 
 	for _, n := range ns.Items {
 		listHPAOpts := metav1.ListOptions{}
-		hpas, err := clientset.AutoscalingV1().HorizontalPodAutoscalers("default").List(listHPAOpts)
+		hpas, err := clientset.AutoscalingV1().HorizontalPodAutoscalers(n.Name).List(listHPAOpts)
 		if err != nil {
 			log.LogError.Errorf("List HorizontalPodAutoscalers error: %v", err)
 			continue
 		}
 		for _, h := range hpas.Items {
-			log.LogAccess.Infof("[%s] %s %s %d/%d %d %d %d", n.Name, h.Name, h.Spec.ScaleTargetRef,
-				h.Status.CurrentCPUUtilizationPercentage, h.Spec.TargetCPUUtilizationPercentage,
-				h.Spec.MinReplicas, h.Spec.MaxReplicas, h.Status.CurrentReplicas)
+			log.LogAccess.Infof("[%s] %s %s %d%%/%d%% %d %d %d", n.Name, h.Name, h.Spec.ScaleTargetRef,
+				*h.Status.CurrentCPUUtilizationPercentage, *h.Spec.TargetCPUUtilizationPercentage,
+				*h.Spec.MinReplicas, h.Spec.MaxReplicas, h.Status.CurrentReplicas)
 		}
 	}
 }
@@ -71,16 +71,18 @@ func Run() error {
 	shutdown := make(chan os.Signal, 1)
 	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
 
+	timer := time.NewTicker(config.Conf.Metric.PeriodDuration)
+	defer timer.Stop()
+
 mainLoop:
 	for {
 		metricLoop()
 		select {
+		case <-timer.C:
 		case <-shutdown:
 			log.LogAccess.Info("Got the signal. Shutting down...")
 			break mainLoop
-		default:
 		}
-		time.Sleep(config.Conf.Metric.PeriodDuration)
 	}
 
 	return nil
