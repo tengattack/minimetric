@@ -18,6 +18,7 @@ import (
 )
 
 const (
+	appName     = "minimetric"
 	beatName    = "metricbeat"
 	beatVersion = "6.5.4"
 )
@@ -171,9 +172,9 @@ func metricLoop() {
 				"@timestamp": ts,
 				"beat": map[string]interface{}{
 					"hostname": hostname,
-					"name":     nodeName,
+					"name":     appName,
 					"timezone": tz,
-					"version":  beatVersion,
+					"version":  version,
 				},
 				"host": map[string]interface{}{
 					"name": nodeName,

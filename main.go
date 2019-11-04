@@ -14,16 +14,16 @@ import (
 )
 
 var (
-	// Version control for dandelion
+	// Version control for minimetric
 	Version = "0.0.1-dev"
 )
 
 func main() {
 	var defaultConfigPath string
 	if runtime.GOOS == "windows" {
-		defaultConfigPath = "config.yml"
+		defaultConfigPath = "minimetric.yml"
 	} else {
-		defaultConfigPath = "/etc/dandelion/config.yml"
+		defaultConfigPath = "/etc/minimetric/minimetric.yml"
 	}
 	configPath := flag.String("config", defaultConfigPath, "config file")
 	showVerbose := flag.Bool("verbose", false, "show verbose debug log")

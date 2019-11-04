@@ -11,7 +11,7 @@ log:
   agent:
     enabled: false
     dsn: 'udp://logstash.example.com:8911'
-    app_id: dandelion
+    app_id: minimetric
     #host: '' # log host, defaults to os.Getenv("HOST") or os.Hostname()
     #instance_id: '' # log instance_id, defaults to os.Getenv("INSTANCE_ID") or os.Hostname()
 
