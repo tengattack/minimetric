@@ -11,6 +11,7 @@ import (
 	client "github.com/elastic/go-lumber/client/v2"
 	"github.com/tengattack/minimetric/config"
 	"github.com/tengattack/tgo/log"
+	autoscalingv2beta2 "k8s.io/api/autoscaling/v2beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -22,6 +23,12 @@ const (
 	beatName    = "metricbeat"
 	beatVersion = "6.5.4"
 )
+
+// MetricValue shows current value & target spec
+type MetricValue struct {
+	Current int64 `json:"current"`
+	Target  int64 `json:"target"`
+}
 
 var (
 	version string
@@ -117,6 +124,38 @@ func sendOutput(output **client.Client, eventData map[string]interface{}) error 
 	return nil
 }
 
+func getNodeName(hostname string) string {
+	nodeName := config.Conf.Metric.NodeName
+	if nodeName == "" {
+		nodeName = os.Getenv("NODE_NAME")
+	}
+	if nodeName == "" {
+		nodeName = hostname
+	}
+	return nodeName
+}
+
+func getMetricValue(target autoscalingv2beta2.MetricTarget, v autoscalingv2beta2.MetricValueStatus) MetricValue {
+	switch target.Type {
+	case autoscalingv2beta2.UtilizationMetricType:
+		return MetricValue{
+			Current: int64(*v.AverageUtilization),
+			Target:  int64(*target.AverageUtilization),
+		}
+	case autoscalingv2beta2.ValueMetricType:
+		return MetricValue{
+			Current: v.Value.Value(),
+			Target:  target.Value.Value(),
+		}
+	case autoscalingv2beta2.AverageValueMetricType:
+		return MetricValue{
+			Current: v.AverageValue.Value(),
+			Target:  target.AverageValue.Value(),
+		}
+	}
+	return MetricValue{}
+}
+
 func metricLoop() {
 	listNamespacesOpts := metav1.ListOptions{}
 
@@ -127,15 +166,13 @@ func metricLoop() {
 	}
 
 	hostname, _ := os.Hostname()
-	nodeName := config.Conf.Metric.NodeName
-	if nodeName == "" {
-		nodeName = hostname
-	}
+	nodeName := getNodeName(hostname)
+
 	var output *client.Client
 
 	for _, n := range ns.Items {
 		listHPAOpts := metav1.ListOptions{}
-		hpas, err := clientset.AutoscalingV1().HorizontalPodAutoscalers(n.Name).List(listHPAOpts)
+		hpas, err := clientset.AutoscalingV2beta2().HorizontalPodAutoscalers(n.Name).List(listHPAOpts)
 		if err != nil {
 			log.LogError.Errorf("List HorizontalPodAutoscalers error: %v", err)
 			continue
@@ -145,23 +182,51 @@ func metricLoop() {
 		ts := t.UTC().Format(time.RFC3339)
 		for _, h := range hpas.Items {
 			var (
-				currentCPU  int32
-				targetCPU   int32
-				minReplicas int32
 				ref         string
+				minReplicas int32
 			)
-			if h.Status.CurrentCPUUtilizationPercentage != nil {
-				currentCPU = *h.Status.CurrentCPUUtilizationPercentage
+			metrics := make(map[string]interface{})
+			for j, m := range h.Status.CurrentMetrics {
+				var sourceType string
+				source := make(map[string]interface{})
+				spec := h.Spec.Metrics[j]
+				switch m.Type {
+				case autoscalingv2beta2.ResourceMetricSourceType:
+					sourceType = "resource"
+					if _, ok := metrics[sourceType]; ok {
+						source = metrics[sourceType].(map[string]interface{})
+					} else {
+						metrics[sourceType] = source
+					}
+					source[string(m.Resource.Name)] = getMetricValue(spec.Resource.Target, m.Resource.Current)
+				case autoscalingv2beta2.PodsMetricSourceType:
+					sourceType = "pods"
+					if _, ok := metrics[sourceType]; ok {
+						source = metrics[sourceType].(map[string]interface{})
+					} else {
+						metrics[sourceType] = source
+					}
+					source[string(m.Pods.Metric.Name)] = getMetricValue(spec.Pods.Target, m.Pods.Current)
+				case autoscalingv2beta2.ExternalMetricSourceType:
+					sourceType = "external"
+					if _, ok := metrics[sourceType]; ok {
+						source = metrics[sourceType].(map[string]interface{})
+					} else {
+						metrics[sourceType] = source
+					}
+					source[string(m.External.Metric.Name)] = getMetricValue(spec.External.Target, m.External.Current)
+				default:
+					log.LogAccess.Warnf("Unknown metric source type %v for hpa %s", m.Type, h.Name)
+					continue
+				}
 			}
-			if h.Spec.TargetCPUUtilizationPercentage != nil {
-				targetCPU = *h.Spec.TargetCPUUtilizationPercentage
-			}
+
+			ref = h.Spec.ScaleTargetRef.Kind + "/" + h.Spec.ScaleTargetRef.Name
 			if h.Spec.MinReplicas != nil {
 				minReplicas = *h.Spec.MinReplicas
 			}
-			ref = h.Spec.ScaleTargetRef.Kind + "/" + h.Spec.ScaleTargetRef.Name
-			log.LogAccess.Debugf("[%s] %s %s %d%%/%d%% %d %d %d", h.Namespace, h.Name,
-				ref, currentCPU, targetCPU,
+			log.LogAccess.Debugf("[%s] %s %s %v %d %d %d", h.Namespace, h.Name,
+				ref, metrics,
 				minReplicas, h.Spec.MaxReplicas, h.Status.CurrentReplicas)
 
 			eventData := map[string]interface{}{
@@ -184,15 +249,11 @@ func metricLoop() {
 					"hpa": map[string]interface{}{
 						"name":      h.Name,
 						"reference": ref,
-						"targets": map[string]interface{}{
-							"cpu": map[string]interface{}{
-								"current": currentCPU,
-								"target":  targetCPU,
-							},
-						},
-						"minpods":  minReplicas,
-						"maxpods":  h.Spec.MaxReplicas,
-						"replicas": h.Status.CurrentReplicas,
+						"metrics":   metrics,
+						"minpods":   minReplicas,
+						"maxpods":   h.Spec.MaxReplicas,
+						"desired":   h.Status.DesiredReplicas,
+						"replicas":  h.Status.CurrentReplicas,
 					},
 				},
 				"metricset": map[string]interface{}{
