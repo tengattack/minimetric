@@ -237,7 +237,7 @@ func metricLoop() {
 				"@timestamp": ts,
 				"beat": map[string]interface{}{
 					"hostname": hostname,
-					"name":     appName,
+					"name":     nodeName,
 					"timezone": tz,
 					"version":  version,
 				},
