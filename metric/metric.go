@@ -60,6 +60,7 @@ func getOutput() (*client.Client, error) {
 
 	if output == nil {
 		getOutputMutex.Lock()
+		defer getOutputMutex.Unlock()
 		c, err := client.Dial(host)
 		if err != nil {
 			log.LogError.Errorf("output host %s dail error: %v", host, err)
@@ -67,7 +68,6 @@ func getOutput() (*client.Client, error) {
 		}
 		outputs[host] = c
 		output = c
-		defer getOutputMutex.Unlock()
 	}
 
 	return output, nil
